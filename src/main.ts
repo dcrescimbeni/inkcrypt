@@ -217,7 +217,9 @@ program
           const text = Buffer.from(opened).toString('utf-8');
           console.log(`[${file}] ${text}`);
         } catch (e) {
-          console.error(`Failed to decrypt ${file}:`, e);
+          // Fallback: show plaintext entries created before encryption was implemented
+          console.warn(`Failed to decrypt ${file}, showing as plaintext.`);
+          console.log(`[${file}] (plaintext) ${contentB64}`);
         }
       }
     } catch (error) {
@@ -232,10 +234,20 @@ program
   .argument('<message>', 'Journal entry message')
   .action(async (message: string) => {
     try {
+      await _sodium.ready;
+      const sodium = _sodium;
+
+      const pubKeyPath = path.resolve(JOURNAL_DIR, 'pubkey.bin');
       const entriesDir = path.resolve(JOURNAL_DIR, 'entries');
       if (!fs.existsSync(entriesDir)) {
         fs.mkdirSync(entriesDir, { recursive: true });
       }
+      if (!fs.existsSync(pubKeyPath)) {
+        throw new Error(`Missing public key at ${pubKeyPath}. Run 'init' first.`);
+      }
+
+      // Load public key (raw bytes)
+      const publicKey = new Uint8Array(await readFile(pubKeyPath));
 
       // Use ISO timestamp, stripped for filename-friendly sorting
       const iso = new Date().toISOString(); // e.g. 2025-09-12T19:06:23.123Z
@@ -243,8 +255,13 @@ program
       const filename = `${stamp}.txt`;
       const filepath = path.join(entriesDir, filename);
 
-      await writeFile(filepath, `${message}\n`);
-      console.log('New entry saved to:', filepath);
+      // Encrypt message using sealed box and store as base64
+      const messageBytes = new TextEncoder().encode(message);
+      const sealed = sodium.crypto_box_seal(messageBytes, publicKey);
+      const sealedB64 = sodium.to_base64(sealed, sodium.base64_variants.ORIGINAL);
+
+      await writeFile(filepath, `${sealedB64}\n`);
+      console.log('New encrypted entry saved to:', filepath);
     } catch (error) {
       console.error('Failed to write entry:', error);
       process.exit(1);

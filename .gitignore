@@ -12,3 +12,6 @@ release
 .env.*
 !.env.example
 !.env.sample
+
+# Journal directory
+priv-jrnl
