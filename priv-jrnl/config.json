@@ -1,0 +1,16 @@
+{
+  "version": "0.1.0",
+  "createdAt": "2025-09-12T22:06:55.139Z",
+  "keypair": {
+    "scheme": "crypto_box/curve25519-xchacha20-poly1305",
+    "publicKeyFile": "pubkey.bin",
+    "privateKeyFile": "privkey.enc",
+    "publicKeyFormat": "raw",
+    "privateKeyFormat": "enc-json"
+  },
+  "kdf": {
+    "alg": "argon2id13",
+    "opslimit": 2,
+    "memlimit": 67108864
+  }
+}

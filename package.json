@@ -1,0 +1,31 @@
+{
+  "name": "priv-journal",
+  "version": "0.1.0",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "bun build src/main.ts --outdir dist --target bun",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format .",
+    "format:write": "biome format --write .",
+    "check": "biome check .",
+    "check:fix": "biome check --write ."
+  },
+  "bin": "./dist/main.js",
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@types/bun": "^1.2.21",
+    "@types/node": "^24.3.1",
+    "commander": "^14.0.0",
+    "libsodium": "^0.7.15",
+    "libsodium-wrappers-sumo": "^0.7.15"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.3",
+    "@types/libsodium-wrappers-sumo": "^0.7.8",
+    "typescript": "^5.9.2"
+  }
+}

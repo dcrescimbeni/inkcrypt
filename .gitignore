@@ -1,0 +1,14 @@
+# Node modules
+node_modules/
+
+# Build output
+dist
+build
+out
+release
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.sample
