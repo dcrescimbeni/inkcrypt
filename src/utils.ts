@@ -1,10 +1,10 @@
 import _sodium from 'libsodium-wrappers-sumo';
-import { writeFile, readFile } from 'fs/promises';
-import { password as promptPassword } from '@inquirer/prompts';
+import { writeFile, readFile, readdir } from 'fs/promises';
+import { password as promptPassword, checkbox } from '@inquirer/prompts';
 import fs from 'fs';
 import envPaths from 'env-paths';
 import path from 'path';
-import { EncBundleSchema } from "./schemas";
+import { EncBundleSchema, type Entry } from "./schemas";
 
 // App-specific paths for config and data storage
 const paths = envPaths('priv-journal');
@@ -128,7 +128,6 @@ export const init = async () => {
 }
 
 export const getKeys = async (password: string) => {
-
   await _sodium.ready;
   const sodium = _sodium;
 
@@ -178,4 +177,90 @@ export const getKeys = async (password: string) => {
   );
 
   return { publicKey, privateKey };
+}
+
+export const getEntries = async (password: string) => {
+  await _sodium.ready;
+  const sodium = _sodium;
+
+  const { publicKey, privateKey } = await getKeys(password);
+  const entriesDir = path.resolve(paths.data);
+
+  if (!fs.existsSync(entriesDir)) {
+    return [];
+  }
+
+  const files = (await readdir(entriesDir))
+    .filter((f) => !f.startsWith('.'))
+    .sort();
+
+  const entries: Entry[] = [];
+
+  for (const file of files) {
+    const full = path.join(entriesDir, file);
+    const stats = await fs.promises.stat(full);
+    const date = stats.mtime;
+    const contentB64 = (await readFile(full, 'utf-8')).trim();
+
+    if (!contentB64) {
+      entries.push({
+        filename: file,
+        text: '',
+        preview: '',
+        date,
+      });
+      continue;
+    };
+
+    const sealed = sodium.from_base64(
+      contentB64,
+      sodium.base64_variants.ORIGINAL,
+    );
+    const opened = sodium.crypto_box_seal_open(
+      sealed,
+      publicKey,
+      privateKey,
+    );
+
+    const text = Buffer.from(opened).toString('utf-8');
+    const preview = text.length > 150 ? text.substring(0, 150) + '...' : text;
+
+    entries.push({
+      filename: file,
+      text,
+      preview,
+      date,
+    });
+  }
+
+  return entries;
+}
+
+export const selectEntries = async (entries: Entry[]) => {
+  if (entries.length === 0) {
+    throw new Error('No entries found');
+  }
+
+  const choices = [];
+
+  for (const entry of entries) {
+    if (!entry.text) continue;
+
+    const preview = entry.text.length > 60
+      ? `${entry.text.substring(0, 60)}...`
+      : entry.text;
+
+    choices.push({
+      name: preview,
+      value: entry.filename,
+    });
+  }
+
+  const selectedEntries = await checkbox({
+    message: 'Select journal entries:',
+    choices: choices,
+    pageSize: 10,
+  });
+
+  return selectedEntries;
 }

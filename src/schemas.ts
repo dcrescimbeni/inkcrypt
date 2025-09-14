@@ -16,3 +16,10 @@ export const EncBundleSchema = z.object({
     salt: z.string(),
   }),
 });
+
+export type Entry = {
+  filename: string;
+  text: string;
+  preview: string;
+  date: Date;
+};

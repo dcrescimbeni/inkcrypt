@@ -1,13 +1,11 @@
 import { Command } from 'commander';
 import fs from 'fs';
-import { writeFile, readFile, readdir } from 'fs/promises';
+import { writeFile, readFile } from 'fs/promises';
 import path from 'path';
 import _sodium from 'libsodium-wrappers-sumo';
 import { password as promptPassword } from '@inquirer/prompts';
 import envPaths from 'env-paths';
-import { getKeys, init } from "./utils";
-import { z } from 'zod';
-import { EncBundleSchema } from "./schemas";
+import { getEntries, init } from "./utils";
 
 const paths = envPaths('priv-journal');
 const program = new Command();
@@ -34,12 +32,6 @@ program
   .description('Decrypt and print all journal entries')
   .action(async () => {
     try {
-      await _sodium.ready;
-      const sodium = _sodium;
-
-
-      const entriesDir = path.resolve(paths.data);
-
       // TODO: this can be extracted into its own function
       // Derive key using Argon2id with stored parameters
       const password = await promptPassword({
@@ -47,34 +39,17 @@ program
         mask: true,
       });
 
-      const { publicKey, privateKey } = await getKeys(password);
+      const entries = await getEntries(password);
 
-      // Read and decrypt each entry (sealed box, base64 encoded)
-      if (!fs.existsSync(entriesDir)) {
-        console.error('No entries found; data folder missing at', entriesDir);
+      if (entries.length === 0) {
+        console.error('No entries found.');
         return;
       }
 
-      const files = (await readdir(entriesDir))
-        .filter((f) => !f.startsWith('.'))
-        .sort();
-
-      for (const file of files) {
-        const full = path.join(entriesDir, file);
-        const contentB64 = (await readFile(full, 'utf-8')).trim();
-        if (!contentB64) continue;
-        const sealed = sodium.from_base64(
-          contentB64,
-          sodium.base64_variants.ORIGINAL,
-        );
-        const opened = sodium.crypto_box_seal_open(
-          sealed,
-          publicKey,
-          privateKey,
-        );
-        const text = Buffer.from(opened).toString('utf-8');
-        console.log(`[${file}] ${text}`);
+      for (const entry of entries) {
+        console.log(`[${entry.filename}] ${entry.text}`);
       }
+
     } catch (error) {
       console.error('Incorrect password. Please try again.');
       console.error(error)
@@ -85,8 +60,10 @@ program
 program
   .command('new')
   .description('Create a new journal entry')
-  .argument('<message>', 'Journal entry message')
-  .action(async (message: string) => {
+  .argument('<message...>', 'Journal entry message')
+  .action(async (originalMessage: string[]) => {
+    const message = originalMessage.join(' ');
+
     try {
       await _sodium.ready;
       const sodium = _sodium;
@@ -109,7 +86,7 @@ program
       const filename = `${stamp}.txt`;
       const filepath = path.join(entriesDir, filename);
 
-      // Encrypt message using sealed box and store as base64
+      // Join message parts and encrypt using sealed box and store as base64
       const messageBytes = new TextEncoder().encode(message);
       const sealed = sodium.crypto_box_seal(messageBytes, publicKey);
       const sealedB64 = sodium.to_base64(sealed, sodium.base64_variants.ORIGINAL);
