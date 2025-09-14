@@ -15,3 +15,7 @@ release
 
 # Journal directory
 priv-jrnl
+
+# Other
+.todo
+.DS_Store
