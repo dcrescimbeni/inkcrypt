@@ -3,9 +3,9 @@ import fs from 'fs';
 import { writeFile, readFile } from 'fs/promises';
 import path from 'path';
 import _sodium from 'libsodium-wrappers-sumo';
-import { password as promptPassword } from '@inquirer/prompts';
+import { input } from '@inquirer/prompts';
 import envPaths from 'env-paths';
-import { getEntries, init } from "./utils";
+import { getEntries, init, selectEntries, editEntry, getPasswordWithRetry } from "./utils";
 
 const paths = envPaths('priv-journal');
 const program = new Command();
@@ -31,29 +31,16 @@ program
   .command('read')
   .description('Decrypt and print all journal entries')
   .action(async () => {
-    try {
-      // TODO: this can be extracted into its own function
-      // Derive key using Argon2id with stored parameters
-      const password = await promptPassword({
-        message: 'Enter your password',
-        mask: true,
-      });
+    const password = await getPasswordWithRetry();
+    const entries = await getEntries(password);
 
-      const entries = await getEntries(password);
+    if (entries.length === 0) {
+      console.error('No entries found.');
+      return;
+    }
 
-      if (entries.length === 0) {
-        console.error('No entries found.');
-        return;
-      }
-
-      for (const entry of entries) {
-        console.log(`[${entry.filename}] ${entry.text}`);
-      }
-
-    } catch (error) {
-      console.error('Incorrect password. Please try again.');
-      console.error(error)
-      process.exit(1);
+    for (const entry of entries) {
+      console.log(`[${entry.filename}] ${entry.text}`);
     }
   });
 
@@ -97,6 +84,34 @@ program
       console.error('Failed to write entry:', error);
       process.exit(1);
     }
+  });
+
+program.command('edit')
+  .description('Edit a journal entry')
+  .action(async () => {
+    const password = await getPasswordWithRetry();
+    const entries = await getEntries(password);
+
+    if (entries.length === 0) {
+      console.error('No entries found.');
+      return;
+    }
+
+    const selectedFilename = await selectEntries(entries);
+    const selectedEntry = entries.find(e => e.filename === selectedFilename);
+
+    if (!selectedEntry) {
+      console.error('Selected entry not found.');
+      return;
+    }
+
+    const editedText = await input({
+      message: 'Edit entry:',
+      default: selectedEntry.text,
+      prefill: "editable",
+    });
+
+    await editEntry(selectedFilename as string, editedText);
   });
 
 program.parse();

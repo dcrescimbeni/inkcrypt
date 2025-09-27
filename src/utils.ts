@@ -1,6 +1,6 @@
 import _sodium from 'libsodium-wrappers-sumo';
 import { writeFile, readFile, readdir } from 'fs/promises';
-import { password as promptPassword, checkbox } from '@inquirer/prompts';
+import { password as promptPassword, checkbox, select } from '@inquirer/prompts';
 import fs from 'fs';
 import envPaths from 'env-paths';
 import path from 'path';
@@ -192,7 +192,8 @@ export const getEntries = async (password: string) => {
 
   const files = (await readdir(entriesDir))
     .filter((f) => !f.startsWith('.'))
-    .sort();
+    .sort()
+    .reverse();
 
   const entries: Entry[] = [];
 
@@ -236,7 +237,14 @@ export const getEntries = async (password: string) => {
   return entries;
 }
 
-export const selectEntries = async (entries: Entry[]) => {
+// Function overloads for type inference
+export function selectEntries(entries: Entry[]): Promise<string>;
+export function selectEntries(entries: Entry[], opts: { multiple: false }): Promise<string>;
+export function selectEntries(entries: Entry[], opts: { multiple: true }): Promise<string[]>;
+export function selectEntries(entries: Entry[], opts?: { multiple?: boolean }): Promise<string | string[]>;
+
+// Implementation
+export async function selectEntries(entries: Entry[], opts?: { multiple?: boolean }): Promise<string | string[]> {
   if (entries.length === 0) {
     throw new Error('No entries found');
   }
@@ -256,11 +264,61 @@ export const selectEntries = async (entries: Entry[]) => {
     });
   }
 
-  const selectedEntries = await checkbox({
-    message: 'Select journal entries:',
-    choices: choices,
-    pageSize: 10,
-  });
+  const multiple = opts?.multiple ?? false;
 
-  return selectedEntries;
+  if (multiple) {
+    const selectedEntries = await checkbox({
+      message: 'Select journal entries:',
+      choices: choices,
+      pageSize: 10,
+    });
+    return selectedEntries;
+  } else {
+    const selectedEntry = await select({
+      message: 'Select a journal entry:',
+      choices: choices,
+      pageSize: 10,
+    });
+    return selectedEntry;
+  }
+}
+
+export const getPasswordWithRetry = async (): Promise<string> => {
+  while (true) {
+    try {
+      const password = await promptPassword({
+        message: 'Enter your password',
+        mask: true,
+      });
+
+      await getKeys(password);
+      return password;
+    } catch {
+      console.error('Incorrect password. Please try again.');
+    }
+  }
+};
+
+export const editEntry = async (filename: string, newText: string) => {
+  await _sodium.ready;
+  const sodium = _sodium;
+
+  const pubKeyPath = path.resolve(paths.config, 'pubkey.bin');
+  const entriesDir = path.resolve(paths.data);
+
+  if (!fs.existsSync(pubKeyPath)) {
+    throw new Error(`Missing public key at ${pubKeyPath}. Run 'init' first.`);
+  }
+
+  const publicKey = new Uint8Array(await readFile(pubKeyPath));
+
+  const messageBytes = new TextEncoder().encode(newText);
+  const sealed = sodium.crypto_box_seal(messageBytes, publicKey);
+  const sealedB64 = sodium.to_base64(sealed, sodium.base64_variants.ORIGINAL);
+
+  // Write to the same file path
+  const filepath = path.join(entriesDir, filename);
+  await writeFile(filepath, `${sealedB64}\n`);
+
+  console.log('Entry updated:', filepath);
 }
