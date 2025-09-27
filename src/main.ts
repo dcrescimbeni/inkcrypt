@@ -1,11 +1,23 @@
-import { Command } from 'commander';
 import fs from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import _sodium from 'libsodium-wrappers-sumo';
 import { confirm, input } from '@inquirer/prompts';
+import { Command } from 'commander';
 import envPaths from 'env-paths';
-import { deleteEntries, editEntry, getEntries, getEntryCount, getPasswordWithRetry, init, selectEntries } from './utils';
+import _sodium from 'libsodium-wrappers-sumo';
+import {
+  deleteEntries,
+  editEntry,
+  extractCategoryFromArgs,
+  extractTagsFromText,
+  formatEntryWithMetadata,
+  getEntries,
+  getEntryCount,
+  getPasswordWithRetry,
+  init,
+  parseMetadata,
+  selectEntries,
+} from './utils';
 
 const paths = envPaths('priv-journal');
 const program = new Command();
@@ -39,7 +51,25 @@ program
     }
 
     for (const entry of entries) {
-      console.log(`[${entry.filename}] ${entry.text}`);
+      let displayText = `[${entry.filename}]`;
+
+      // Add metadata display
+      if (entry.metadata?.category || entry.metadata?.tags) {
+        const metadataParts = [];
+        if (entry.metadata.category) {
+          metadataParts.push(entry.metadata.category);
+        }
+        if (entry.metadata.tags && entry.metadata.tags.length > 0) {
+          metadataParts.push(entry.metadata.tags.join(' '));
+        }
+        displayText += ` ${metadataParts.join(' ')}`;
+      }
+
+      // Parse content to show only the actual content (without metadata header)
+      const { content } = parseMetadata(entry.text);
+      displayText += ` - ${content}`;
+
+      console.log(displayText);
     }
   });
 
@@ -48,7 +78,21 @@ program
   .description('Create a new journal entry')
   .argument('<message...>', 'Journal entry message')
   .action(async (originalMessage: string[]) => {
-    const message = originalMessage.join(' ');
+    // Extract category from arguments
+    const { category, remainingArgs } = extractCategoryFromArgs(originalMessage);
+    const message = remainingArgs.join(' ');
+
+    // Extract tags from the message content
+    const tags = extractTagsFromText(message);
+
+    // Create metadata object
+    const metadata = {
+      ...(category && { category }),
+      ...(tags.length > 0 && { tags }),
+    };
+
+    // Format the entry with metadata
+    const entryText = formatEntryWithMetadata(message, metadata);
 
     try {
       await _sodium.ready;
@@ -72,8 +116,8 @@ program
       const filename = `${stamp}.txt`;
       const filepath = path.join(entriesDir, filename);
 
-      // Join message parts and encrypt using sealed box and store as base64
-      const messageBytes = new TextEncoder().encode(message);
+      // Encrypt the formatted entry with metadata
+      const messageBytes = new TextEncoder().encode(entryText);
       const sealed = sodium.crypto_box_seal(messageBytes, publicKey);
       const sealedB64 = sodium.to_base64(sealed, sodium.base64_variants.ORIGINAL);
 
@@ -105,13 +149,28 @@ program
       return;
     }
 
+    // Parse the existing entry to extract metadata and content
+    const { metadata: existingMetadata, content: existingContent } = parseMetadata(selectedEntry.text);
+
     const editedText = await input({
       message: 'Edit entry:',
-      default: selectedEntry.text,
+      default: existingContent,
       prefill: 'editable',
     });
 
-    await editEntry(selectedFilename as string, editedText);
+    // Extract tags from the edited content
+    const newTags = extractTagsFromText(editedText);
+
+    // Preserve category, update tags
+    const updatedMetadata = {
+      ...(existingMetadata.category && { category: existingMetadata.category }),
+      ...(newTags.length > 0 && { tags: newTags }),
+    };
+
+    // Format the entry with updated metadata
+    const formattedEntry = formatEntryWithMetadata(editedText, updatedMetadata);
+
+    await editEntry(selectedFilename as string, formattedEntry);
   });
 
 program
@@ -182,7 +241,7 @@ program
 
     const password = await getPasswordWithRetry();
     const entries = await getEntries(password);
-    const filenames = entries.map(e => e.filename);
+    const filenames = entries.map((e) => e.filename);
 
     const deletedCount = await deleteEntries(filenames);
     console.log(`Successfully deleted ${deletedCount} entries.`);

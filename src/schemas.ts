@@ -17,9 +17,15 @@ export const EncBundleSchema = z.object({
   }),
 });
 
+export type EntryMetadata = {
+  category?: string;
+  tags?: string[];
+};
+
 export type Entry = {
   filename: string;
   text: string;
   preview: string;
   date: Date;
+  metadata?: EntryMetadata;
 };

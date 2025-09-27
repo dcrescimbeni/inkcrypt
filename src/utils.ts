@@ -1,10 +1,10 @@
-import { checkbox, password as promptPassword, select } from '@inquirer/prompts';
-import envPaths from 'env-paths';
 import fs from 'node:fs';
 import { readdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import _sodium from 'libsodium-wrappers-sumo';
 import path from 'node:path';
-import { EncBundleSchema, type Entry } from './schemas';
+import { checkbox, password as promptPassword, select } from '@inquirer/prompts';
+import envPaths from 'env-paths';
+import _sodium from 'libsodium-wrappers-sumo';
+import { EncBundleSchema, type Entry, type EntryMetadata } from './schemas';
 
 // App-specific paths for config and data storage
 const paths = envPaths('priv-journal');
@@ -181,6 +181,7 @@ export const getEntries = async (password: string) => {
         text: '',
         preview: '',
         date,
+        metadata: {},
       });
       continue;
     }
@@ -189,13 +190,17 @@ export const getEntries = async (password: string) => {
     const opened = sodium.crypto_box_seal_open(sealed, publicKey, privateKey);
 
     const text = Buffer.from(opened).toString('utf-8');
-    const preview = text.length > 150 ? `${text.substring(0, 150)}...` : text;
+
+    // Parse metadata and content
+    const { metadata, content } = parseMetadata(text);
+    const preview = content.length > 150 ? `${content.substring(0, 150)}...` : content;
 
     entries.push({
       filename: file,
       text,
       preview,
       date,
+      metadata,
     });
   }
 
@@ -219,7 +224,9 @@ export async function selectEntries(entries: Entry[], opts?: { multiple?: boolea
   for (const entry of entries) {
     if (!entry.text) continue;
 
-    const preview = entry.text.length > 60 ? `${entry.text.substring(0, 60)}...` : entry.text;
+    // Parse content to show only the actual content (without metadata header) in preview
+    const { content } = parseMetadata(entry.text);
+    const preview = content.length > 60 ? `${content.substring(0, 60)}...` : content;
 
     choices.push({
       name: preview,
@@ -291,8 +298,7 @@ export const getEntryCount = async () => {
     return 0;
   }
 
-  const files = (await readdir(entriesDir))
-    .filter((f) => !f.startsWith('.'));
+  const files = (await readdir(entriesDir)).filter((f) => !f.startsWith('.'));
 
   return files.length;
 };
@@ -312,4 +318,83 @@ export const deleteEntries = async (filenames: string[]) => {
   }
 
   return deletedCount;
+};
+
+// Metadata utility functions
+export const parseMetadata = (text: string): { metadata: EntryMetadata; content: string } => {
+  const parts = text.split('---');
+
+  if (parts.length < 2) {
+    // No metadata, extract tags from content only
+    const tags = extractTagsFromText(text);
+    return {
+      metadata: tags.length > 0 ? { tags } : {},
+      content: text,
+    };
+  }
+
+  const metadataText = parts[0].trim();
+  const content = parts.slice(1).join('---').trim();
+  const metadata: EntryMetadata = {};
+
+  // Parse category
+  const categoryMatch = metadataText.match(/^category:\s*(@\w+)$/m);
+  if (categoryMatch) {
+    metadata.category = categoryMatch[1];
+  }
+
+  // Parse tags from metadata
+  const tagsMatch = metadataText.match(/^tags:\s*(.+)$/m);
+  let metadataTags: string[] = [];
+  if (tagsMatch) {
+    metadataTags = tagsMatch[1].split(/\s+/).filter((tag) => tag.startsWith('#'));
+  }
+
+  // Extract tags from content
+  const contentTags = extractTagsFromText(content);
+
+  // Combine and deduplicate tags
+  const allTags = [...new Set([...metadataTags, ...contentTags])];
+  if (allTags.length > 0) {
+    metadata.tags = allTags;
+  }
+
+  return { metadata, content };
+};
+
+export const formatEntryWithMetadata = (content: string, metadata: EntryMetadata): string => {
+  if (!metadata.category && (!metadata.tags || metadata.tags.length === 0)) {
+    return content;
+  }
+
+  const metadataLines: string[] = [];
+
+  if (metadata.category) {
+    metadataLines.push(`category: ${metadata.category}`);
+  }
+
+  if (metadata.tags && metadata.tags.length > 0) {
+    metadataLines.push(`tags: ${metadata.tags.join(' ')}`);
+  }
+
+  return `${metadataLines.join('\n')}\n---\n${content}`;
+};
+
+export const extractTagsFromText = (text: string): string[] => {
+  const tagRegex = /#\w+/g;
+  const matches = text.match(tagRegex);
+  return matches ? [...new Set(matches)] : [];
+};
+
+export const extractCategoryFromArgs = (args: string[]): { category?: string; remainingArgs: string[] } => {
+  const categoryIndex = args.findIndex((arg) => arg.startsWith('@'));
+
+  if (categoryIndex === -1) {
+    return { remainingArgs: args };
+  }
+
+  const category = args[categoryIndex];
+  const remainingArgs = args.filter((_, index) => index !== categoryIndex);
+
+  return { category, remainingArgs };
 };
