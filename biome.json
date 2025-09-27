@@ -15,7 +15,9 @@
   "javascript": {
     "globals": ["console"],
     "formatter": {
-      "trailingCommas": "es5"
+      "trailingCommas": "es5",
+      "quoteStyle": "single",
+      "jsxQuoteStyle": "single"
     }
   },
   "files": {
