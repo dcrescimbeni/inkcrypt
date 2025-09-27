@@ -5,7 +5,7 @@ import path from 'node:path';
 import _sodium from 'libsodium-wrappers-sumo';
 import { confirm, input } from '@inquirer/prompts';
 import envPaths from 'env-paths';
-import { deleteEntries, editEntry, getEntries, getPasswordWithRetry, init, selectEntries } from './utils';
+import { deleteEntries, editEntry, getEntries, getEntryCount, getPasswordWithRetry, init, selectEntries } from './utils';
 
 const paths = envPaths('priv-journal');
 const program = new Command();
@@ -154,6 +154,37 @@ program
     }
 
     const deletedCount = await deleteEntries(selectedFilenames);
+    console.log(`Successfully deleted ${deletedCount} entries.`);
+  });
+
+program
+  .command('deleteAll')
+  .description('Delete all journal entries')
+  .action(async () => {
+    const entryCount = await getEntryCount();
+
+    if (entryCount === 0) {
+      console.log('No entries found to delete.');
+      return;
+    }
+
+    console.log(`You have ${entryCount} entries that will be permanently deleted.`);
+
+    const confirmed = await confirm({
+      message: `Are you sure you want to permanently delete all ${entryCount} entries? This action cannot be undone.`,
+      default: false,
+    });
+
+    if (!confirmed) {
+      console.log('Deletion cancelled.');
+      return;
+    }
+
+    const password = await getPasswordWithRetry();
+    const entries = await getEntries(password);
+    const filenames = entries.map(e => e.filename);
+
+    const deletedCount = await deleteEntries(filenames);
     console.log(`Successfully deleted ${deletedCount} entries.`);
   });
 

@@ -284,6 +284,19 @@ export const editEntry = async (filename: string, newText: string) => {
   await writeFile(filepath, `${sealedB64}\n`);
 };
 
+export const getEntryCount = async () => {
+  const entriesDir = path.resolve(paths.data);
+
+  if (!fs.existsSync(entriesDir)) {
+    return 0;
+  }
+
+  const files = (await readdir(entriesDir))
+    .filter((f) => !f.startsWith('.'));
+
+  return files.length;
+};
+
 export const deleteEntries = async (filenames: string[]) => {
   const entriesDir = path.resolve(paths.data);
   let deletedCount = 0;
