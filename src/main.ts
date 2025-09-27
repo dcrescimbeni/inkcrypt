@@ -1,35 +1,34 @@
-import { Command } from 'commander';
-import fs from 'fs';
-import { writeFile, readFile } from 'fs/promises';
-import path from 'path';
-import _sodium from 'libsodium-wrappers-sumo';
-import { input } from '@inquirer/prompts';
-import envPaths from 'env-paths';
-import { getEntries, init, selectEntries, editEntry, getPasswordWithRetry } from "./utils";
+import { Command } from "commander";
+import fs from "fs";
+import { readFile, writeFile } from "fs/promises";
+import path from "path";
+import _sodium from "libsodium-wrappers-sumo";
+import { confirm, input } from "@inquirer/prompts";
+import envPaths from "env-paths";
+import { deleteEntries, editEntry, getEntries, getPasswordWithRetry, init, selectEntries } from "./utils";
 
-const paths = envPaths('priv-journal');
+const paths = envPaths("priv-journal");
 const program = new Command();
 
-program
-  .name('priv-journal')
-  .description('A private journal CLI tool')
-  .version('0.1.0');
+program.name("priv-journal").description("A private journal CLI tool").version("0.1.0");
 
 program
-  .command('init')
-  .description('Initialize a new keypair and setup encryption')
-  .action(async () => { await init() });
-
-program
-  .command('hello')
-  .description('Say hello world')
-  .action(() => {
-    console.log('Hello, World!');
+  .command("init")
+  .description("Initialize a new keypair and setup encryption")
+  .action(async () => {
+    await init();
   });
 
 program
-  .command('read')
-  .description('Decrypt and print all journal entries')
+  .command("hello")
+  .description("Say hello world")
+  .action(() => {
+    console.log("Hello, World!");
+  });
+
+program
+  .command("read")
+  .description("Decrypt and print all journal entries")
   .action(async () => {
     const password = await getPasswordWithRetry();
     const entries = await getEntries(password);
@@ -112,6 +111,49 @@ program.command('edit')
     });
 
     await editEntry(selectedFilename as string, editedText);
+  });
+
+program
+  .command("delete")
+  .description("Delete journal entries")
+  .action(async () => {
+    const password = await getPasswordWithRetry();
+    const entries = await getEntries(password);
+
+    if (entries.length === 0) {
+      console.error("No entries found.");
+      return;
+    }
+
+    const selectedFilenames = await selectEntries(entries, { multiple: true });
+
+    if (selectedFilenames.length === 0) {
+      console.log("No entries selected for deletion.");
+      return;
+    }
+
+    // Show preview of entries to be deleted
+    console.log(`\nYou have selected ${selectedFilenames.length} entries to delete:`);
+    for (const filename of selectedFilenames) {
+      const entry = entries.find((e) => e.filename === filename);
+      if (entry) {
+        const preview = entry.text.length > 80 ? `${entry.text.substring(0, 80)}...` : entry.text;
+        console.log(`- ${filename}: ${preview}`);
+      }
+    }
+
+    const confirmed = await confirm({
+      message: `Are you sure you want to permanently delete ${selectedFilenames.length} entries? This action cannot be undone.`,
+      default: false,
+    });
+
+    if (!confirmed) {
+      console.log("Deletion cancelled.");
+      return;
+    }
+
+    const deletedCount = await deleteEntries(selectedFilenames);
+    console.log(`Successfully deleted ${deletedCount} entries.`);
   });
 
 program.parse();

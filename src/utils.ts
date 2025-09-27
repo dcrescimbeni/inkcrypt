@@ -1,9 +1,9 @@
-import _sodium from 'libsodium-wrappers-sumo';
-import { writeFile, readFile, readdir } from 'fs/promises';
-import { password as promptPassword, checkbox, select } from '@inquirer/prompts';
-import fs from 'fs';
-import envPaths from 'env-paths';
-import path from 'path';
+import { checkbox, password as promptPassword, select } from "@inquirer/prompts";
+import envPaths from "env-paths";
+import fs from "fs";
+import { readdir, readFile, unlink, writeFile } from "fs/promises";
+import _sodium from "libsodium-wrappers-sumo";
+import path from "path";
 import { EncBundleSchema, type Entry } from "./schemas";
 
 // App-specific paths for config and data storage
@@ -319,6 +319,21 @@ export const editEntry = async (filename: string, newText: string) => {
   // Write to the same file path
   const filepath = path.join(entriesDir, filename);
   await writeFile(filepath, `${sealedB64}\n`);
-
-  console.log('Entry updated:', filepath);
 }
+
+export const deleteEntries = async (filenames: string[]) => {
+  const entriesDir = path.resolve(paths.data);
+  let deletedCount = 0;
+
+  for (const filename of filenames) {
+    try {
+      const filepath = path.join(entriesDir, filename);
+      await unlink(filepath);
+      deletedCount++;
+    } catch (error) {
+      console.error(`Failed to delete ${filename}:`, error);
+    }
+  }
+
+  return deletedCount;
+};
