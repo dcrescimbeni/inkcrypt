@@ -151,7 +151,16 @@ export const getKeys = async (password: string) => {
   return { publicKey, privateKey };
 };
 
-export const getEntries = async (password: string) => {
+export const getEntries = async (
+  {
+    password,
+    category,
+    tags
+  }: {
+    password: string,
+    category?: string,
+    tags?: string[]
+  }) => {
   await _sodium.ready;
   const sodium = _sodium;
 
@@ -195,14 +204,45 @@ export const getEntries = async (password: string) => {
     const { metadata, content } = parseMetadata(text);
     const preview = content.length > 150 ? `${content.substring(0, 150)}...` : content;
 
-    entries.push({
+    const entry = {
       filename: file,
       text,
       preview,
       date,
       metadata,
-    });
+    };
+
+    // Apply filters if provided
+    let includeEntry = true;
+
+    // Category filter
+    if (category && metadata.category !== category) {
+      includeEntry = false;
+    }
+
+    // Tag filter
+    if (includeEntry && tags && tags.length > 0) {
+      includeEntry = entryMatchesTags(entry, tags);
+    }
+
+    if (includeEntry) {
+      entries.push(entry);
+    }
   }
+
+
+  if (entries.length === 0) {
+    const filters = [];
+    if (category) filters.push(`category ${category}`);
+    if (tags && tags.length > 0) filters.push(`tags ${tags.join(', ')}`);
+
+    if (filters.length > 0) {
+      console.error(`No entries found for ${filters.join(' and ')}.`);
+    } else {
+      console.error('No entries found.');
+    }
+  }
+
 
   return entries;
 };
@@ -291,16 +331,36 @@ export const editEntry = async (filename: string, newText: string) => {
   await writeFile(filepath, `${sealedB64}\n`);
 };
 
-export const getEntryCount = async () => {
-  const entriesDir = path.resolve(paths.data);
+export const getEntryCount = async (
+  {
+    password,
+    category,
+    tags
+  }: {
+    password?: string,
+    category?: string,
+    tags?: string[]
+  }) => {
+  if (!category && (!tags || tags.length === 0)) {
+    // If no filters, use the fast file count method
+    const entriesDir = path.resolve(paths.data);
 
-  if (!fs.existsSync(entriesDir)) {
-    return 0;
+    if (!fs.existsSync(entriesDir)) {
+      return 0;
+    }
+
+    const files = (await readdir(entriesDir)).filter((f) => !f.startsWith('.'));
+
+    return files.length;
   }
 
-  const files = (await readdir(entriesDir)).filter((f) => !f.startsWith('.'));
+  // If any filter is provided, we need to decrypt and check metadata
+  if (!password) {
+    throw new Error('Password required when filtering by category or tags');
+  }
 
-  return files.length;
+  const entries = await getEntries({ password, category, tags });
+  return entries.length;
 };
 
 export const deleteEntries = async (filenames: string[]) => {
@@ -397,4 +457,23 @@ export const extractCategoryFromArgs = (args: string[]): { category?: string; re
   const remainingArgs = args.filter((_, index) => index !== categoryIndex);
 
   return { category, remainingArgs };
+};
+
+export const normalizeTag = (tag: string): string => {
+  return tag.startsWith('#') ? tag : `#${tag}`;
+};
+
+export const normalizeTags = (tags: string[]): string[] => {
+  return tags.map(normalizeTag);
+};
+
+export const entryMatchesTags = (entry: Entry, requiredTags: string[]): boolean => {
+  if (!entry.metadata || !entry.metadata.tags || entry.metadata.tags.length === 0) {
+    return false;
+  }
+
+  const entryTags = entry.metadata.tags.map(normalizeTag);
+  const normalizedRequiredTags = normalizeTags(requiredTags);
+
+  return normalizedRequiredTags.every(tag => entryTags.includes(tag));
 };

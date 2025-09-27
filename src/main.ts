@@ -41,12 +41,17 @@ program
 program
   .command('read')
   .description('Decrypt and print all journal entries')
-  .action(async () => {
+  .argument('[category]', 'Filter entries by category (e.g., @work)')
+  .option('-t, --tags <tags>', 'Filter by tags (e.g., mood, #goals)')
+  .action(async (category?: string, options?: { tags?: string }) => {
     const password = await getPasswordWithRetry();
-    const entries = await getEntries(password);
+
+    // Parse tags from options
+    const tags = options?.tags ? options.tags.split(/\s+/).filter(Boolean) : undefined;
+
+    const entries = await getEntries({ password, category, tags });
 
     if (entries.length === 0) {
-      console.error('No entries found.');
       return;
     }
 
@@ -132,12 +137,17 @@ program
 program
   .command('edit')
   .description('Edit a journal entry')
-  .action(async () => {
+  .argument('[category]', 'Filter entries by category (e.g., @work)')
+  .option('-t, --tags <tags>', 'Filter by tags (e.g., mood, #goals)')
+  .action(async (category?: string, options?: { tags?: string }) => {
     const password = await getPasswordWithRetry();
-    const entries = await getEntries(password);
+
+    // Parse tags from options
+    const tags = options?.tags ? options.tags.split(/\s+/).filter(Boolean) : undefined;
+
+    const entries = await getEntries({ password, category, tags });
 
     if (entries.length === 0) {
-      console.error('No entries found.');
       return;
     }
 
@@ -176,12 +186,17 @@ program
 program
   .command('delete')
   .description('Delete journal entries')
-  .action(async () => {
+  .argument('[category]', 'Filter entries by category (e.g., @work)')
+  .option('-t, --tags <tags>', 'Filter by tags (e.g., mood, #goals)')
+  .action(async (category?: string, options?: { tags?: string }) => {
     const password = await getPasswordWithRetry();
-    const entries = await getEntries(password);
+
+    // Parse tags from options
+    const tags = options?.tags ? options.tags.split(/\s+/).filter(Boolean) : undefined;
+
+    const entries = await getEntries({ password, category, tags });
 
     if (entries.length === 0) {
-      console.error('No entries found.');
       return;
     }
 
@@ -219,18 +234,39 @@ program
 program
   .command('deleteAll')
   .description('Delete all journal entries')
-  .action(async () => {
-    const entryCount = await getEntryCount();
+  .argument('[category]', 'Filter entries by category (e.g., @work)')
+  .option('-t, --tags <tags>', 'Filter by tags (e.g., mood, #goals)')
+  .action(async (category?: string, options?: { tags?: string }) => {
+    // Parse tags from options
+    const tags = options?.tags ? options.tags.split(/\s+/).filter(Boolean) : undefined;
+
+    // Get password first if category or tag filtering is needed
+    let password: string | undefined;
+    if (category || (tags && tags.length > 0)) {
+      password = await getPasswordWithRetry();
+    }
+
+    const entryCount = await getEntryCount({ password, category, tags });
 
     if (entryCount === 0) {
-      console.log('No entries found to delete.');
       return;
     }
 
-    console.log(`You have ${entryCount} entries that will be permanently deleted.`);
+    const filters = [];
+    if (category) filters.push(`category ${category}`);
+    if (tags && tags.length > 0) filters.push(`tags ${tags.join(', ')}`);
+
+    if (filters.length > 0) {
+      console.log(`You have ${entryCount} entries matching ${filters.join(' and ')} that will be permanently deleted.`);
+    } else {
+      console.log(`You have ${entryCount} entries that will be permanently deleted.`);
+    }
+
+    const filterDescription = filters.length > 0 ? ` matching ${filters.join(' and ')}` : '';
+    const message = `Are you sure you want to permanently delete all ${entryCount} entries${filterDescription}? This action cannot be undone.`;
 
     const confirmed = await confirm({
-      message: `Are you sure you want to permanently delete all ${entryCount} entries? This action cannot be undone.`,
+      message,
       default: false,
     });
 
@@ -239,8 +275,11 @@ program
       return;
     }
 
-    const password = await getPasswordWithRetry();
-    const entries = await getEntries(password);
+    if (!password) {
+      password = await getPasswordWithRetry();
+    }
+
+    const entries = await getEntries({ password, category, tags });
     const filenames = entries.map((e) => e.filename);
 
     const deletedCount = await deleteEntries(filenames);
