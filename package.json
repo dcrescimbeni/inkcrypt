@@ -17,6 +17,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "ansi-escapes": "^6.2.1",
     "@inquirer/prompts": "^7.8.4",
     "@types/bun": "^1.2.21",
     "@types/node": "^24.3.1",

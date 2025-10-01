@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { confirm, input } from '@inquirer/prompts';
+import ansiEscapes from 'ansi-escapes';
 import { Command } from 'commander';
 import envPaths from 'env-paths';
 import _sodium from 'libsodium-wrappers-sumo';
@@ -21,6 +22,17 @@ import {
 
 const paths = envPaths('priv-journal');
 const program = new Command();
+
+async function withAlternateScreen(render: () => Promise<void> | void) {
+  process.stdout.write(ansiEscapes.enterAlternativeScreen);
+  process.stdout.write(ansiEscapes.clearScreen);
+  try {
+    await render();
+  } finally {
+    process.stdout.write(ansiEscapes.clearScreen);
+    process.stdout.write(ansiEscapes.exitAlternativeScreen);
+  }
+}
 
 program.name('priv-journal').description('A private journal CLI tool').version('0.1.0');
 
@@ -55,27 +67,34 @@ program
       return;
     }
 
-    for (const entry of entries) {
-      let displayText = `[${entry.filename}]`;
+    await withAlternateScreen(async () => {
+      for (const entry of entries) {
+        let displayText = `[${entry.filename}]`;
 
-      // Add metadata display
-      if (entry.metadata?.category || entry.metadata?.tags) {
-        const metadataParts = [];
-        if (entry.metadata.category) {
-          metadataParts.push(entry.metadata.category);
+        // Add metadata display
+        if (entry.metadata?.category || entry.metadata?.tags) {
+          const metadataParts = [];
+          if (entry.metadata.category) {
+            metadataParts.push(entry.metadata.category);
+          }
+          if (entry.metadata.tags && entry.metadata.tags.length > 0) {
+            metadataParts.push(entry.metadata.tags.join(' '));
+          }
+          displayText += ` ${metadataParts.join(' ')}`;
         }
-        if (entry.metadata.tags && entry.metadata.tags.length > 0) {
-          metadataParts.push(entry.metadata.tags.join(' '));
-        }
-        displayText += ` ${metadataParts.join(' ')}`;
+
+        // Parse content to show only the actual content (without metadata header)
+        const { content } = parseMetadata(entry.text);
+        displayText += ` - ${content}`;
+
+        console.log(displayText);
       }
 
-      // Parse content to show only the actual content (without metadata header)
-      const { content } = parseMetadata(entry.text);
-      displayText += ` - ${content}`;
-
-      console.log(displayText);
-    }
+      await input({
+        message: 'Press Enter to exit the entries view',
+        default: '',
+      });
+    });
   });
 
 program
@@ -207,15 +226,22 @@ program
       return;
     }
 
-    // Show preview of entries to be deleted
-    console.log(`\nYou have selected ${selectedFilenames.length} entries to delete:`);
-    for (const filename of selectedFilenames) {
-      const entry = entries.find((e) => e.filename === filename);
-      if (entry) {
-        const preview = entry.text.length > 80 ? `${entry.text.substring(0, 80)}...` : entry.text;
-        console.log(`- ${filename}: ${preview}`);
+    // Show preview of entries to be deleted within an alternate screen
+    await withAlternateScreen(async () => {
+      console.log(`You have selected ${selectedFilenames.length} entries to delete:`);
+      for (const filename of selectedFilenames) {
+        const entry = entries.find((e) => e.filename === filename);
+        if (entry) {
+          const preview = entry.text.length > 80 ? `${entry.text.substring(0, 80)}...` : entry.text;
+          console.log(`- ${filename}: ${preview}`);
+        }
       }
-    }
+
+      await input({
+        message: 'Press Enter to continue to deletion confirmation',
+        default: '',
+      });
+    });
 
     const confirmed = await confirm({
       message: `Are you sure you want to permanently delete ${selectedFilenames.length} entries? This action cannot be undone.`,
