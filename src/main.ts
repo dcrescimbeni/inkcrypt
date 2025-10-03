@@ -9,7 +9,6 @@ import _sodium from 'libsodium-wrappers-sumo';
 import {
   deleteEntries,
   editEntry,
-  extractCategoryFromArgs,
   extractTagsFromText,
   formatEntryWithMetadata,
   getEntries,
@@ -19,6 +18,7 @@ import {
   parseMetadata,
   selectEntries,
 } from './utils';
+import { textarea, textarea2 } from "./textarea";
 
 const paths = envPaths('priv-journal');
 const program = new Command();
@@ -32,6 +32,20 @@ async function withAlternateScreen(render: () => Promise<void> | void) {
     process.stdout.write(ansiEscapes.clearScreen);
     process.stdout.write(ansiEscapes.exitAlternativeScreen);
   }
+}
+
+function normalizeCategoryInput(input: string): string | undefined {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const withoutPrefix = trimmed.replace(/^@+/, '');
+  if (!withoutPrefix) {
+    return undefined;
+  }
+
+  return `@${withoutPrefix}`;
 }
 
 program.name('priv-journal').description('A private journal CLI tool').version('0.1.0');
@@ -100,22 +114,27 @@ program
 program
   .command('new')
   .description('Create a new journal entry')
-  .argument('<message...>', 'Journal entry message')
-  .action(async (originalMessage: string[]) => {
-    // Extract category from arguments
-    const { category, remainingArgs } = extractCategoryFromArgs(originalMessage);
-    const message = remainingArgs.join(' ');
+  .argument('[category]', 'Category to assign to the entry (e.g., @work)')
+  .action(async (categoryArg?: string) => {
 
-    // Extract tags from the message content
+    const message = await textarea2({
+      message: 'New entry',
+    });
+
+    if (!message.trim()) {
+      console.log('Entry discarded: no content provided.');
+      return;
+    }
+
+    const normalizedCategory = normalizeCategoryInput(categoryArg ?? '');
+
     const tags = extractTagsFromText(message);
 
-    // Create metadata object
     const metadata = {
-      ...(category && { category }),
+      ...(normalizedCategory && { category: normalizedCategory }),
       ...(tags.length > 0 && { tags }),
     };
 
-    // Format the entry with metadata
     const entryText = formatEntryWithMetadata(message, metadata);
 
     try {
@@ -131,7 +150,6 @@ program
         throw new Error(`Missing public key at ${pubKeyPath}. Run 'init' first.`);
       }
 
-      // Load public key (raw bytes)
       const publicKey = new Uint8Array(await readFile(pubKeyPath));
 
       // Use ISO timestamp, stripped for filename-friendly sorting
@@ -140,7 +158,6 @@ program
       const filename = `${stamp}.txt`;
       const filepath = path.join(entriesDir, filename);
 
-      // Encrypt the formatted entry with metadata
       const messageBytes = new TextEncoder().encode(entryText);
       const sealed = sodium.crypto_box_seal(messageBytes, publicKey);
       const sealedB64 = sodium.to_base64(sealed, sodium.base64_variants.ORIGINAL);
@@ -161,7 +178,6 @@ program
   .action(async (category?: string, options?: { tags?: string }) => {
     const password = await getPasswordWithRetry();
 
-    // Parse tags from options
     const tags = options?.tags ? options.tags.split(/\s+/).filter(Boolean) : undefined;
 
     const entries = await getEntries({ password, category, tags });
@@ -178,26 +194,35 @@ program
       return;
     }
 
-    // Parse the existing entry to extract metadata and content
     const { metadata: existingMetadata, content: existingContent } = parseMetadata(selectedEntry.text);
+    let categoryInput = existingMetadata.category ?? '';
+    let editedContent = existingContent;
 
-    const editedText = await input({
-      message: 'Edit entry:',
-      default: existingContent,
-      prefill: 'editable',
+    await withAlternateScreen(async () => {
+      editedContent = await textarea({
+        message: 'Update entry',
+        defaultValue: existingContent,
+      });
     });
 
-    // Extract tags from the edited content
-    const newTags = extractTagsFromText(editedText);
+    if (!editedContent.trim()) {
+      console.log('Edit cancelled: no content provided.');
+      return;
+    }
 
-    // Preserve category, update tags
+    const normalizedCategory = normalizeCategoryInput(categoryInput);
+
+    // Extract tags from the edited content
+    const newTags = extractTagsFromText(editedContent);
+
+    // Create metadata object
     const updatedMetadata = {
-      ...(existingMetadata.category && { category: existingMetadata.category }),
+      ...(normalizedCategory && { category: normalizedCategory }),
       ...(newTags.length > 0 && { tags: newTags }),
     };
 
-    // Format the entry with updated metadata
-    const formattedEntry = formatEntryWithMetadata(editedText, updatedMetadata);
+    // Format the entry with metadata
+    const formattedEntry = formatEntryWithMetadata(editedContent, updatedMetadata);
 
     await editEntry(selectedFilename as string, formattedEntry);
   });
