@@ -1,5 +1,5 @@
 {
-  "name": "priv-journal",
+  "name": "inkcrypt",
   "version": "0.1.0",
   "main": "dist/main.js",
   "scripts": {
@@ -14,7 +14,7 @@
     "check:fix": "biome check --write ."
   },
   "bin": "./dist/main.js",
-  "author": "",
+  "author": "Dino Crescimbeni",
   "license": "ISC",
   "description": "",
   "dependencies": {

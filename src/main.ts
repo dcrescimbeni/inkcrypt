@@ -66,13 +66,6 @@ program
   });
 
 program
-  .command('hello')
-  .description('Say hello world')
-  .action(() => {
-    console.log('Hello, World!');
-  });
-
-program
   .command('read')
   .description('Decrypt and print all journal entries')
   .argument('[category]', 'Filter entries by category (e.g., @work)')
