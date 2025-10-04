@@ -9,6 +9,7 @@ import _sodium from 'libsodium-wrappers-sumo';
 import {
   deleteEntries,
   editEntry,
+  changePassword,
   extractTagsFromText,
   formatEntryWithMetadata,
   getEntries,
@@ -18,7 +19,7 @@ import {
   parseMetadata,
   selectEntries,
 } from './utils';
-import { textarea, textarea2 } from "./textarea";
+import { textarea } from "./textarea";
 
 const paths = envPaths('priv-journal');
 const program = new Command();
@@ -55,6 +56,13 @@ program
   .description('Initialize a new keypair and setup encryption')
   .action(async () => {
     await init();
+  });
+
+program
+  .command('change-password')
+  .description('Change the encryption password and re-encrypt all entries')
+  .action(async () => {
+    await changePassword();
   });
 
 program
@@ -117,7 +125,7 @@ program
   .argument('[category]', 'Category to assign to the entry (e.g., @work)')
   .action(async (categoryArg?: string) => {
 
-    const message = await textarea2({
+    const message = await textarea({
       message: 'New entry',
     });
 

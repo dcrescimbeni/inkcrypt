@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { readdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { readdir, readFile, unlink, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { checkbox, password as promptPassword, select } from '@inquirer/prompts';
 import envPaths from 'env-paths';
@@ -112,6 +112,197 @@ export const init = async () => {
     return { pubKeyPath, privEncPath, configPath };
   } catch (error) {
     console.error('Error during initialization:', error);
+    process.exit(1);
+  }
+};
+
+export const changePassword = async () => {
+  try {
+    await _sodium.ready;
+    const sodium = _sodium;
+
+    const currentPassword = await getPasswordWithRetry();
+    const { publicKey: oldPublicKey, privateKey: oldPrivateKey } = await getKeys(currentPassword);
+
+    const entriesDir = path.resolve(paths.data);
+    const entryPayloads: Array<{
+      filename: string;
+      plaintext: string;
+      originalContent: string;
+      atime: Date;
+      mtime: Date;
+    }> = [];
+
+    if (fs.existsSync(entriesDir)) {
+      const files = (await readdir(entriesDir)).filter((f) => !f.startsWith('.')).sort();
+
+      for (const file of files) {
+        const fullPath = path.join(entriesDir, file);
+        const stats = await fs.promises.stat(fullPath);
+        const rawContent = await readFile(fullPath, 'utf-8');
+        const contentB64 = rawContent.trim();
+
+        let plaintext = '';
+        if (contentB64) {
+          const sealed = sodium.from_base64(contentB64, sodium.base64_variants.ORIGINAL);
+          const opened = sodium.crypto_box_seal_open(sealed, oldPublicKey, oldPrivateKey);
+          plaintext = Buffer.from(opened).toString('utf-8');
+        }
+
+        entryPayloads.push({
+          filename: file,
+          plaintext,
+          originalContent: rawContent,
+          atime: stats.atime,
+          mtime: stats.mtime,
+        });
+      }
+    }
+
+    const newPassword = await promptPassword({
+      message: 'Enter a new encryption password',
+      mask: true,
+      validate: (input) => (input && input.length >= 1 ? true : 'Password cannot be empty'),
+    });
+
+    const newPasswordConfirmation = await promptPassword({
+      message: 'Confirm the new encryption password',
+      mask: true,
+      validate: (input) => (input && input.length >= 1 ? true : 'Password cannot be empty'),
+    });
+
+    if (newPassword !== newPasswordConfirmation) {
+      console.error('Passwords do not match');
+      process.exit(1);
+    }
+
+    const newKeypair = sodium.crypto_box_keypair();
+    const newPublicKey = newKeypair.publicKey;
+    const newPrivateKey = newKeypair.privateKey;
+
+    const reencryptedEntries = entryPayloads.map((entry) => {
+      const messageBytes = new TextEncoder().encode(entry.plaintext);
+      const sealed = sodium.crypto_box_seal(messageBytes, newPublicKey);
+      const sealedB64 = sodium.to_base64(sealed, sodium.base64_variants.ORIGINAL);
+      return {
+        ...entry,
+        newContent: `${sealedB64}\n`,
+      };
+    });
+
+    const pubKeyPath = path.resolve(paths.config, 'pubkey.bin');
+    const privEncPath = path.resolve(paths.config, 'privkey.enc');
+    const configPath = path.resolve(paths.config, 'config.json');
+
+    if (!fs.existsSync(paths.config)) {
+      fs.mkdirSync(paths.config, { recursive: true });
+    }
+
+    const originalPubKey = fs.existsSync(pubKeyPath) ? await readFile(pubKeyPath) : undefined;
+    const originalPrivEnc = fs.existsSync(privEncPath) ? await readFile(privEncPath) : undefined;
+    const originalConfig = fs.existsSync(configPath) ? await readFile(configPath, 'utf-8') : undefined;
+
+    const salt = sodium.randombytes_buf(sodium.crypto_pwhash_SALTBYTES);
+    const derivedKey = sodium.crypto_pwhash(
+      sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES,
+      newPassword,
+      salt,
+      sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
+      sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
+      sodium.crypto_pwhash_ALG_ARGON2ID13
+    );
+
+    const nonce = sodium.randombytes_buf(sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
+    const encryptedPrivKey = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(newPrivateKey, null, null, nonce, derivedKey);
+
+    const encBundle = {
+      version: '1',
+      cipher: {
+        alg: 'xchacha20poly1305-ietf',
+        nonce: sodium.to_base64(nonce, sodium.base64_variants.ORIGINAL),
+        ciphertext: sodium.to_base64(encryptedPrivKey, sodium.base64_variants.ORIGINAL),
+      },
+      kdf: {
+        alg: 'argon2id13',
+        keyBytes: sodium.crypto_aead_xchacha20poly1305_ietf_KEYBYTES,
+        opslimit: sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
+        memlimit: sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
+        salt: sodium.to_base64(salt, sodium.base64_variants.ORIGINAL),
+      },
+    } as const;
+
+    let parsedConfig: Record<string, unknown> = {};
+    if (originalConfig) {
+      try {
+        parsedConfig = JSON.parse(originalConfig) as Record<string, unknown>;
+      } catch {
+        parsedConfig = {};
+      }
+    }
+
+    const now = new Date().toISOString();
+    const parsedVersion = (parsedConfig as { version?: unknown }).version;
+    const parsedCreatedAt = (parsedConfig as { createdAt?: unknown }).createdAt;
+    const version = typeof parsedVersion === 'string' ? parsedVersion : '0.1.0';
+    const createdAt = typeof parsedCreatedAt === 'string' ? parsedCreatedAt : now;
+
+    const updatedConfig: Record<string, unknown> = {
+      ...parsedConfig,
+      version,
+      createdAt,
+      updatedAt: now,
+      keypair: {
+        scheme: 'crypto_box/curve25519-xchacha20-poly1305',
+        publicKeyFile: path.basename(pubKeyPath),
+        privateKeyFile: path.basename(privEncPath),
+        publicKeyFormat: 'raw',
+        privateKeyFormat: 'enc-json',
+      },
+      kdf: {
+        alg: 'argon2id13',
+        opslimit: sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
+        memlimit: sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
+      },
+    };
+
+    try {
+      await writeFile(pubKeyPath, Buffer.from(newPublicKey));
+      await writeFile(privEncPath, Buffer.from(JSON.stringify(encBundle, null, 2)));
+      await writeFile(configPath, Buffer.from(JSON.stringify(updatedConfig, null, 2)));
+
+      if (!fs.existsSync(entriesDir)) {
+        fs.mkdirSync(entriesDir, { recursive: true });
+      }
+
+      for (const entry of reencryptedEntries) {
+        const targetPath = path.join(entriesDir, entry.filename);
+        await writeFile(targetPath, entry.newContent);
+        await utimes(targetPath, entry.atime, entry.mtime);
+      }
+
+      console.log('Password updated successfully.');
+    } catch (error) {
+      if (originalPubKey) {
+        await writeFile(pubKeyPath, originalPubKey);
+      }
+      if (originalPrivEnc) {
+        await writeFile(privEncPath, originalPrivEnc);
+      }
+      if (originalConfig !== undefined) {
+        await writeFile(configPath, Buffer.from(originalConfig));
+      }
+
+      for (const entry of entryPayloads) {
+        const targetPath = path.join(entriesDir, entry.filename);
+        await writeFile(targetPath, entry.originalContent);
+        await utimes(targetPath, entry.atime, entry.mtime);
+      }
+
+      console.error('Failed to change password. Original state restored.');
+      throw error;
+    }
+  } catch (error) {
+    console.error('Failed to change password:', error);
     process.exit(1);
   }
 };
@@ -303,7 +494,14 @@ export const getPasswordWithRetry = async (): Promise<string> => {
 
       await getKeys(password);
       return password;
-    } catch {
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === 'ExitPromptError' || error.name === 'CancelPromptError' || error.name === 'AbortPromptError')
+      ) {
+        console.log('Password prompt cancelled.');
+        process.exit(0);
+      }
       console.error('Incorrect password. Please try again.');
     }
   }

@@ -1,7 +1,7 @@
 
 import blessed from 'blessed';
 
-export async function textarea2({
+export async function textarea({
   message,
   defaultValue = ''
 }: {
@@ -28,14 +28,13 @@ export async function textarea2({
       left: 'center',
       width: '90%',
       height: '90%',
-      content: 'Ctrl+S to save • Esc to clear • Ctrl+C to cancel{/}',
+      content: 'Ctrl+S to save • Esc twice to cancel',
       tags: true,
       border: {
         type: 'line'
       },
       style: {
         fg: 'white',
-        // bg: 'magenta',
         border: { fg: '#f0f0f0' },
       }
     });
@@ -65,7 +64,7 @@ export async function textarea2({
 
 }
 
-export async function textarea({
+export async function textarea2({
   message,
   defaultValue = '',
 }: {
@@ -152,10 +151,6 @@ export async function textarea({
           inverse: true,
         },
       },
-      // style: {
-      //   fg: 'white',
-      //   bg: 'black',
-      // },
     });
 
     textarea.setValue(defaultValue);
