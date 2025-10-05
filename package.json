@@ -1,10 +1,13 @@
 {
   "name": "inkcrypt",
   "version": "0.1.0",
+  "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "build": "bun build src/main.ts --outdir dist --target bun --packages external",
-    "dev": "npm run build && bun run ./dist/main.js --",
+    "build": "tsc --project tsconfig.json",
+    "dev": "npm run build && node ./dist/main.js --",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
@@ -13,13 +16,42 @@
     "check": "biome check .",
     "check:fix": "biome check --write ."
   },
-  "bin": "./dist/main.js",
+  "bin": {
+    "inkcrypt": "bin/inkcrypt.js"
+  },
   "author": "Dino Crescimbeni",
   "license": "ISC",
-  "description": "",
+  "description": "Encrypted-by-design journal CLI. Never writes plaintext to disk.",
+  "keywords": [
+    "cli",
+    "journal",
+    "encrypted",
+    "encryption",
+    "privacy",
+    "libsodium",
+    "sealed-box",
+    "notes",
+    "diary",
+    "terminal"
+  ],
+  "homepage": "https://github.com/dcrescimbeni/inkcrypt",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dcrescimbeni/inkcrypt.git"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@inquirer/prompts": "^7.8.4",
-    "@types/bun": "^1.2.21",
     "@types/node": "^24.3.1",
     "ansi-escapes": "^6.2.1",
     "blessed": "^0.1.81",

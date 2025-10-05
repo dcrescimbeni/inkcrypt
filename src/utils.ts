@@ -4,7 +4,7 @@ import path from 'node:path';
 import { checkbox, password as promptPassword, select } from '@inquirer/prompts';
 import envPaths from 'env-paths';
 import _sodium from 'libsodium-wrappers-sumo';
-import { EncBundleSchema, type Entry, type EntryMetadata } from './schemas';
+import { EncBundleSchema, type Entry, type EntryMetadata } from './schemas.js';
 
 // App-specific paths for config and data storage
 const paths = envPaths('priv-journal');

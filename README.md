@@ -1,6 +1,6 @@
-`inkcrypt` is an **encrypted-by-design** journal CLI. Its goal is to make it safe and effortless to write and revisit entries **without ever writing plaintext to disk**. Entries are encrypted client-side, in memory, before they're saved, and decrypted only locally when you view them.
+`inkcrypt` is an **encrypted-by-design** journal CLI. Its goal is to make it safe and effortless to write and read entries **without ever writing plaintext to disk**. Entries are encrypted client-side, in memory, before they're saved, and decrypted only locally when you view them.
 
-When you write an entry, `inkcrypt` locks it before it ever touches your disk. It uses a "padlock" (your public key) to save only the locked version, so anyone opening the file just sees scrambled nonsense. When you want to read or edit, you unlock it with your password (your private key), make changes, and the moment you save it's locked again. Even your categories and tags live inside that lock, so the only thing visible on disk is a timestamped, gibberish-looking, file.
+When you write an entry, `inkcrypt` encrypts it before it ever touches your disk. It uses a your public key to save only the encrypted version, so anyone opening the file just sees scrambled nonsense. When you want to read or edit, you unlock it with your password (your private key), make changes, and the moment you save it's locked again. Even your categories and tags live encrypted, so the only thing visible on disk is a timestamped, gibberish-looking, file.
 
 ## Getting started
 

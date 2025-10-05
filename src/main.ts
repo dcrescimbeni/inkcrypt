@@ -18,8 +18,8 @@ import {
   init,
   parseMetadata,
   selectEntries,
-} from './utils';
-import { textarea } from "./textarea";
+} from './utils.js';
+import { textarea } from './textarea.js';
 
 const paths = envPaths('priv-journal');
 const program = new Command();
@@ -74,7 +74,7 @@ function normalizeCategoryInput(input: string): string | undefined {
   return `@${withoutPrefix}`;
 }
 
-program.name('priv-journal').description('A private journal CLI tool').version('0.1.0');
+program.name('inkcrypt').description('Encrypted-by-design journal CLI tool').version('0.1.0');
 
 program
   .command('init')
