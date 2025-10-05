@@ -269,11 +269,50 @@ program
   .description('Delete journal entries')
   .argument('[category]', 'Filter entries by category (e.g., @work)')
   .option('-t, --tags <tags>', 'Filter by tags (e.g., mood, #goals)')
-  .action(async (category?: string, options?: { tags?: string }) => {
-    const password = await getPasswordWithRetry();
-
-    // Parse tags from options
+  .option('-a, --all', 'Delete all entries matching the provided filters')
+  .action(async (category?: string, options?: { tags?: string; all?: boolean }) => {
     const tags = options?.tags ? options.tags.split(/\s+/).filter(Boolean) : undefined;
+    const deleteAll = options?.all ?? false;
+    const password = await getPasswordWithRetry()
+
+    if (deleteAll) {
+      const entryCount = await getEntryCount({ password, category, tags });
+
+      if (entryCount === 0) {
+        console.log("No entries to delete.")
+        return;
+      }
+
+      const filters: string[] = [];
+      if (category) filters.push(`category ${category}`);
+      if (tags && tags.length > 0) filters.push(`tags ${tags.join(', ')}`);
+
+      if (filters.length > 0) {
+        console.log(`You have ${entryCount} entries matching ${filters.join(' and ')} that will be permanently deleted.`);
+      } else {
+        console.log(`You have ${entryCount} entries that will be permanently deleted.`);
+      }
+
+      const filterDescription = filters.length > 0 ? ` matching ${filters.join(' and ')}` : '';
+      const message = `Are you sure you want to permanently delete all ${entryCount} entries${filterDescription}? This action cannot be undone.`;
+
+      const confirmed = await confirm({
+        message,
+        default: false,
+      });
+
+      if (!confirmed) {
+        console.log('Deletion cancelled.');
+        return;
+      }
+
+      const entries = await getEntries({ password, category, tags });
+      const filenames = entries.map((e) => e.filename);
+
+      const deletedCount = await deleteEntries(filenames);
+      console.log(`Successfully deleted ${deletedCount} entries.`);
+      return;
+    }
 
     const entries = await getEntries({ password, category, tags });
 
@@ -316,61 +355,6 @@ program
     }
 
     const deletedCount = await deleteEntries(selectedFilenames);
-    console.log(`Successfully deleted ${deletedCount} entries.`);
-  });
-
-program
-  .command('deleteAll')
-  .description('Delete all journal entries')
-  .argument('[category]', 'Filter entries by category (e.g., @work)')
-  .option('-t, --tags <tags>', 'Filter by tags (e.g., mood, #goals)')
-  .action(async (category?: string, options?: { tags?: string }) => {
-    // Parse tags from options
-    const tags = options?.tags ? options.tags.split(/\s+/).filter(Boolean) : undefined;
-
-    // Get password first if category or tag filtering is needed
-    let password: string | undefined;
-    if (category || (tags && tags.length > 0)) {
-      password = await getPasswordWithRetry();
-    }
-
-    const entryCount = await getEntryCount({ password, category, tags });
-
-    if (entryCount === 0) {
-      return;
-    }
-
-    const filters = [];
-    if (category) filters.push(`category ${category}`);
-    if (tags && tags.length > 0) filters.push(`tags ${tags.join(', ')}`);
-
-    if (filters.length > 0) {
-      console.log(`You have ${entryCount} entries matching ${filters.join(' and ')} that will be permanently deleted.`);
-    } else {
-      console.log(`You have ${entryCount} entries that will be permanently deleted.`);
-    }
-
-    const filterDescription = filters.length > 0 ? ` matching ${filters.join(' and ')}` : '';
-    const message = `Are you sure you want to permanently delete all ${entryCount} entries${filterDescription}? This action cannot be undone.`;
-
-    const confirmed = await confirm({
-      message,
-      default: false,
-    });
-
-    if (!confirmed) {
-      console.log('Deletion cancelled.');
-      return;
-    }
-
-    if (!password) {
-      password = await getPasswordWithRetry();
-    }
-
-    const entries = await getEntries({ password, category, tags });
-    const filenames = entries.map((e) => e.filename);
-
-    const deletedCount = await deleteEntries(filenames);
     console.log(`Successfully deleted ${deletedCount} entries.`);
   });
 

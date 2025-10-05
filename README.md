@@ -28,9 +28,9 @@ When you write an entry, `inkcrypt` locks it before it ever touches your disk. I
   - You can also filter by tags: `inkcrypt read @work --tags "#mood #goals"`
 
 - Delete all (with optional filters)
-  - Delete everything: `inkcrypt deleteAll`
-  - Delete by category: `inkcrypt deleteAll @work`
-  - With tags: `inkcrypt deleteAll @work --tags "#mood #goals"`
+  - Delete everything: `inkcrypt delete --all`
+  - Delete by category: `inkcrypt delete --all @work`
+  - With tags: `inkcrypt delete --all @work --tags "#mood #goals"`
 
 - Change password
   - Re-encrypt all entries with a new password: `inkcrypt change-password`
