@@ -23,6 +23,31 @@ import { textarea } from "./textarea";
 
 const paths = envPaths('priv-journal');
 const program = new Command();
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'long',
+  timeStyle: 'short',
+});
+
+function parseDateFromFilename(filename: string): Date | undefined {
+  const withoutExtension = filename.replace(/\.[^.]+$/, '');
+  const match = withoutExtension.match(
+    /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z$/
+  );
+
+  if (!match) {
+    return undefined;
+  }
+
+  const [, year, month, day, hours, minutes, seconds, millis] = match;
+  const isoLike = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${millis}Z`;
+  const date = new Date(isoLike);
+
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  return date;
+}
 
 async function withAlternateScreen(render: () => Promise<void> | void) {
   process.stdout.write(ansiEscapes.enterAlternativeScreen);
@@ -83,27 +108,38 @@ program
     }
 
     await withAlternateScreen(async () => {
-      for (const entry of entries) {
-        let displayText = `[${entry.filename}]`;
+      const entrySeparator = '='.repeat(70);
 
-        // Add metadata display
-        if (entry.metadata?.category || entry.metadata?.tags) {
-          const metadataParts = [];
-          if (entry.metadata.category) {
-            metadataParts.push(entry.metadata.category);
-          }
-          if (entry.metadata.tags && entry.metadata.tags.length > 0) {
-            metadataParts.push(entry.metadata.tags.join(' '));
-          }
-          displayText += ` ${metadataParts.join(' ')}`;
+      entries.forEach((entry, index) => {
+        const { content } = parseMetadata(entry.text);
+        const parsedDate = parseDateFromFilename(entry.filename);
+        const formattedDate = parsedDate ? dateFormatter.format(parsedDate) : entry.filename;
+
+        if (index > 0) {
+          console.log('');
         }
 
-        // Parse content to show only the actual content (without metadata header)
-        const { content } = parseMetadata(entry.text);
-        displayText += ` - ${content}`;
+        console.log(entrySeparator);
+        console.log(`Date     : ${formattedDate}`);
 
-        console.log(displayText);
-      }
+        if (entry.metadata?.category) {
+          console.log(`Category : ${entry.metadata.category}`);
+        }
+
+        if (entry.metadata?.tags && entry.metadata.tags.length > 0) {
+          console.log(`Tags     : ${entry.metadata.tags.join(', ')}`);
+        }
+
+        if (content) {
+          console.log('');
+          for (const line of content.trimEnd().split('\n')) {
+            console.log(`  ${line}`);
+          }
+        }
+      });
+
+      console.log('');
+      console.log(entrySeparator);
 
       await input({
         message: 'Press Enter to exit the entries view',
@@ -196,7 +232,7 @@ program
     }
 
     const { metadata: existingMetadata, content: existingContent } = parseMetadata(selectedEntry.text);
-    let categoryInput = existingMetadata.category ?? '';
+    const categoryInput = existingMetadata.category ?? '';
     let editedContent = existingContent;
 
     await withAlternateScreen(async () => {
